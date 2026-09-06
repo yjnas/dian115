@@ -114,7 +114,7 @@ async function createWatch() {
     <header class="page-header">
       <div>
         <h2>完整插件示例</h2>
-        <p>进程状态、Host Call、目录监控、Telegram 与主题契约。</p>
+        <p>WASM 运行时、Host Call、目录监控、Telegram 与主题契约。</p>
       </div>
       <NTag type="success" size="small">{{ themeContract || 'dian115-theme-v1' }}</NTag>
     </header>

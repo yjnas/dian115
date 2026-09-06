@@ -41,13 +41,25 @@
   background: var(--dian-background);
 }
 
+html,
+body,
+#app {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  margin: 0;
+}
+
+html {
+  box-sizing: border-box;
+}
+
 body {
   box-sizing: border-box;
-  min-width: 320px;
-  max-width: 1100px;
-  margin: 0 auto;
   padding: 24px;
   background: var(--dian-background);
+  color: var(--dian-text-primary);
+  font-family: var(--dian-font-family);
 }
 
 *,

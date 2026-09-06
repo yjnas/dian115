@@ -49,10 +49,10 @@
       "additionalProperties": false,
       "required": ["kind", "protocol", "autostart", "trust_level"],
       "properties": {
-        "kind": { "const": "process" },
-        "protocol": { "const": "dian115:process@1" },
+        "kind": { "enum": ["process", "wasm"] },
+        "protocol": { "enum": ["dian115:process@1", "dian115:wasm@1"] },
         "autostart": { "type": "boolean" },
-        "trust_level": { "const": "isolated-process" }
+        "trust_level": { "enum": ["isolated-process", "wasm-sandbox"] }
       },
       "allOf": [{
         "properties": {

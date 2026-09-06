@@ -57,8 +57,8 @@
       "$ref": "#/$defs/compatibility"
     },
     "runtime": {
-      "$ref": "#/$defs/processRuntime",
-      "description": "The signed runtime is a supervised Linux process started by DIAN115 in the current container."
+      "oneOf": [{"$ref":"#/$defs/processRuntime"},{"$ref":"#/$defs/wasmRuntime"}],
+      "description": "The signed runtime executes inside the DIAN115 container. WASM is the default isolation boundary."
     },
     "permissions": {
       "$ref": "#/$defs/permissions"
@@ -219,6 +219,23 @@
           "const": "on-failure",
           "default": "on-failure"
         }
+      }
+    },
+    "wasmRuntime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "entry", "protocol"],
+      "properties": {
+        "kind": {"const":"wasm"},
+        "entry": {"$ref":"#/$defs/packagePath", "description":"WASM module with the dian115_handle ABI."},
+        "protocol": {"const":"dian115:wasm@1"},
+        "startup_timeout_ms": {"type":"integer","minimum":1000,"maximum":60000,"default":10000},
+        "shutdown_timeout_ms": {"type":"integer","minimum":1000,"maximum":60000,"default":5000},
+        "timeout_ms": {"type":"integer","minimum":100,"maximum":120000,"default":30000},
+        "background_timeout_ms": {"type":"integer","minimum":1000,"maximum":3600000,"default":300000},
+        "memory_mb": {"type":"integer","minimum":4,"maximum":512,"default":64},
+        "max_concurrency": {"type":"integer","minimum":1,"maximum":16,"default":4},
+        "restart_policy": {"const":"on-failure","default":"on-failure"}
       }
     },
     "permissions": {

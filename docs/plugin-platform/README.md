@@ -5,12 +5,15 @@ This directory is the complete public contract for third-party plugins. It is in
 
 Every plugin is one signed `.d115p` ZIP containing both parts below:
 
-- a statically linked Linux `process` runtime supervised by DIAN115;
-- a signed Vue 3 Module Federation page using the host-provided Vue 3, Naive UI, and `@lucide/vue` packages.
+- a statically linked Linux `process` runtime supervised by DIAN115 (legacy);
+- a signed Vue 3 Module Federation page using the host-provided Vue 3, Naive UI, and `@lucide/vue` packages;
+- a WASM reactor runtime (`dian115:wasm@1`) executed by the embedded container runtime. Native process packages remain supported only for migration.
 
-The UI is mandatory. Packages without `ui.mode=federation`, a signed Federation entry, and a valid process runtime are rejected. The only runtime is the supervised native process; there is no remote runtime, extra plugin container, alternate UI format, or UI fallback protocol.
+The UI is mandatory. Packages without `ui.mode=federation`, a signed Federation entry, and a valid WASM or legacy process runtime are rejected. There is no remote runtime, extra plugin container, alternate UI format, or UI fallback protocol.
 
-The process is started directly by the main service inside the current Docker container. It cannot open network sockets or inspect paths outside its private root. Each installation owns `/config/package/<plugin-id>/`: its `package/` release directory, `data/` persistent directory and `tmp/` temporary directory are visible as `/package`, `/data` and `/tmp` after the helper enters the private root. Other plugins, `/config` itself, Linux system directories and media mounts are not present in that root. Host files, watches, HTTP requests and DIAN115 business operations continue through `host.call`. HTTP targets may be internet, LAN, host, container, loopback, or other locally reachable services.
+The Federation document receives a full-width, zero-margin `html/body/#plugin-sandbox-root` baseline with `border-box` sizing. Keep the plugin root fluid (`width: 100%; max-width: 100%; min-width: 0`); do not rely on preview-only global CSS or a fixed body width. A desktop browser may still have a narrow plugin viewport while the host sidebar is open, so responsive layouts must wrap or switch to one column around 900-1000px.
+
+WASM is executed by the main service inside the current Docker container without inherited host descriptors, sockets, secrets, or preopened host paths. Host files, watches, HTTP requests and DIAN115 business operations continue through `host.call`. HTTP targets may be internet, LAN, host, container, loopback, or other locally reachable services.
 
 ## Authoritative files
 
@@ -18,7 +21,7 @@ Read these files in order:
 
 1. [Developer guide](developer-guide.md): end-to-end workflow and capability overview.
 2. [Package format v1](package-format-v1.md): Manifest, ZIP, integrity, signature, market index, installation and update rules.
-3. [Process runtime v1](process-runtime-v1.md): framed JSON-RPC, lifecycle, invocation envelopes, results, Telegram and logging.
+3. [WASM runtime v1](wasm-runtime-v1.md): reactor ABI, broker imports, quotas, Telegram events and lifecycle. [Process runtime v1](process-runtime-v1.md) documents the legacy compatibility path.
 4. [Host Call v2](host-call-v2.md): local Host APIs, external HTTP/HTTPS, local services, proxy precedence, credentials, limits and errors.
 5. [Vue Federation UI v1](ui-federation-v1.md): build contract, component props, bridge API, trusted same-origin behavior and every stable theme variable.
 6. [OpenAPI](openapi-v1.yaml): exact request and response schemas for every approved local Host API.
@@ -31,7 +34,7 @@ Machine-readable schemas:
 - [signature.schema.json](signature.schema.json)
 - [market index schema](market-index.schema.json)
 
-The complete sample is in [`examples/complete-plugin`](examples/complete-plugin/README.md). It contains a Go process runtime, a Vue page, a Manifest template, packaging/signing code, and a market entry template.
+The complete sample is in [`examples/complete-plugin`](examples/complete-plugin/README.md). It contains a Go WASM reactor runtime, a Vue page, a Manifest template, packaging/signing code, and a market entry template.
 
 ## Compatibility and source of truth
 
@@ -44,8 +47,8 @@ For local Host APIs, the runtime catalog returned by `GET /api/plugin-center/v1/
 - Install only packages signed by a publisher you trust. A native process remains publisher code even inside the host sandbox.
 - The mandatory Vue page is trusted same-origin publisher code. It is not placed in an iframe sandbox or an extra CSP sandbox and may use browser storage, images, popups and ordinary browser requests. Administrators must treat installing a plugin as trusting both its signed UI and runtime; backend authorization remains authoritative for Host APIs.
 - The package limit is 32 MiB compressed, 128 MiB expanded, 1024 ZIP members, and 32 MiB per member.
-- The Linux sandbox uses the capabilities already present in a standard Docker container for the pre-exec `chroot`, then clears all capabilities without changing UID or the container configuration. No Compose addition, mount, network, ptrace, BPF or host service is required. The normal mode is `private-root`; if a deployment deliberately removes the default `SYS_CHROOT` capability, the helper uses `host-api-only` instead and denies all plugin pathname file syscalls. If the mandatory seccomp or process setup cannot be applied, the plugin does not start.
-- The host validates the signed static ELF before installing the filter. A plugin may start a package-local helper process when needed; every descendant inherits the same private root, seccomp/no-new-privileges policy and process-group lifecycle, so it can use only that plugin's files and cannot open a direct socket or affect unrelated processes.
+- WASM plugins have no inherited file descriptors, sockets, credentials, environment secrets or preopened host directories. The embedded interpreter enforces module memory and context time limits; network, storage, notifications, watches and DIAN115 operations are brokered Host API calls. Native process packages use the legacy Linux seccomp/chroot path and require process-risk consent.
+- Legacy process packages are validated as static ELF before the seccomp filter. WASM packages do not start plugin executables or helper processes.
 - `DIAN115_PLUGIN_DATA=/data`, `DIAN115_PLUGIN_PACKAGE=/package/...` and `TMPDIR=/tmp` are paths inside the plugin's private root. Use them for plugin-owned resources and persistent files. Use the approved file/watch APIs for host data; a host path is never exposed as a plugin-owned path.
 - Brokered network access supports `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, and `DELETE` over HTTP and HTTPS. The host does not reject a target because it resolves to loopback, private, link-local, container, host or other non-public addresses.
 - Host proxy-domain rules have higher priority than plugin routing preferences.
@@ -61,7 +64,7 @@ Administrators can import a plugin package directly from the Plugin Center's
 boundary as a market install:
 
 1. Select a `.d115p` file. The host stores it in a private, short-lived staging directory and returns a review token; the browser never receives a server filesystem path.
-2. The host validates ZIP limits, `manifest.json`, `integrity.json`, Ed25519 signature, process runtime, static ELF, Federation UI, and declared permissions before showing the review dialog.
+2. The host validates ZIP limits, `manifest.json`, `integrity.json`, Ed25519 signature, the declared runtime (WASM ABI or legacy static ELF), Federation UI, and permissions before showing the review dialog.
 3. After the administrator accepts the displayed permissions and process risk, the token is submitted to install. The host re-checks the token, expiry, SHA-256, consent digest, and package before starting the normal asynchronous install operation.
 
 The token expires after 15 minutes, is single-use, and is removed after install, cancellation, failure, or expiry. Local import does not create a market repository entry and does not bypass signature, integrity, UI, runtime, filesystem, network, Telegram, or permission checks. Installed records show `本地导入` as their source.

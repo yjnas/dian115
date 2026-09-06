@@ -22,7 +22,7 @@ const root = resolve(join(dirname(fileURLToPath(import.meta.url)), '..'))
 const manifestTemplatePath = join(root, 'manifest.template.json')
 const marketTemplatePath = join(root, 'market-entry.template.json')
 const buildRoot = join(root, 'build')
-const runtimePath = join(buildRoot, 'runtime', 'plugin')
+const runtimePath = join(buildRoot, 'runtime', 'plugin.wasm')
 const uiAssetsRoot = join(buildRoot, 'frontend', 'dist', 'assets')
 const iconPath = join(root, 'frontend', 'icon.svg')
 const releasesRoot = join(root, 'releases')
@@ -91,17 +91,8 @@ function walk(directory) {
   return result
 }
 
-function assertStaticELF(buffer) {
-  if (buffer.length < 64 || buffer.subarray(0, 4).toString('hex') !== '7f454c46') throw new Error('runtime/plugin is not an ELF file')
-  if (buffer[4] !== 2 || buffer[5] !== 1) throw new Error('runtime/plugin must be a 64-bit little-endian ELF')
-  const programOffset = Number(buffer.readBigUInt64LE(32))
-  const programEntrySize = buffer.readUInt16LE(54)
-  const programCount = buffer.readUInt16LE(56)
-  for (let index = 0; index < programCount; index += 1) {
-    const offset = programOffset + (index * programEntrySize)
-    if (offset + 4 > buffer.length) throw new Error('runtime/plugin has a truncated program table')
-    if (buffer.readUInt32LE(offset) === 3) throw new Error('runtime/plugin contains PT_INTERP and is dynamically linked')
-  }
+function assertWASM(buffer) {
+  if (buffer.length < 8 || !buffer.subarray(0, 8).equals(Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]))) throw new Error('runtime/plugin.wasm is not a valid WebAssembly module')
 }
 
 function zipPackage(outputPath, files) {
@@ -119,7 +110,7 @@ function zipPackage(outputPath, files) {
   })
 }
 
-if (!existsSync(runtimePath)) throw new Error('Missing build/runtime/plugin; run npm run build first')
+if (!existsSync(runtimePath)) throw new Error('Missing build/runtime/plugin.wasm; run npm run build first')
 if (!existsSync(uiAssetsRoot)) throw new Error('Missing build/frontend/dist/assets; run npm run build first')
 
 const privateKey = loadPrivateKey()
@@ -130,11 +121,11 @@ manifest.publisher.key_id = keyID
 const manifestBytes = Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
 
 const runtimeBytes = readFileSync(runtimePath)
-assertStaticELF(runtimeBytes)
+assertWASM(runtimeBytes)
 const files = [
   { path: 'manifest.json', data: manifestBytes, executable: false },
   { path: 'frontend/icon.svg', data: readFileSync(iconPath), executable: false },
-  { path: 'runtime/plugin', data: runtimeBytes, executable: true },
+  { path: 'runtime/plugin.wasm', data: runtimeBytes, executable: false },
 ]
 
 for (const localPath of walk(uiAssetsRoot)) {
@@ -188,7 +179,12 @@ marketEntry.description = manifest.description
 marketEntry.author = manifest.publisher.name
 marketEntry.homepage = manifest.homepage
 marketEntry.sha256 = packageDigest
-marketEntry.runtime = { kind: 'process', protocol: manifest.runtime.protocol, autostart: true, trust_level: 'isolated-process' }
+marketEntry.runtime = {
+  kind: manifest.runtime.kind,
+  protocol: manifest.runtime.protocol,
+  autostart: true,
+  trust_level: manifest.runtime.kind === 'wasm' ? 'wasm-sandbox' : 'isolated-process',
+}
 marketEntry.permissions = manifest.permissions
 marketEntry.tags = manifest.tags || []
 writeFileSync(join(releasesRoot, 'market-entry.generated.json'), `${JSON.stringify(marketEntry, null, 2)}\n`)

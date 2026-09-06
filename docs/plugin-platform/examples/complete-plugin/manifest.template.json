@@ -16,15 +16,16 @@
     "plugin_api": "^2.0"
   },
   "runtime": {
-    "kind": "process",
-    "entry": "runtime/plugin",
-    "protocol": "dian115:process@1",
+    "kind": "wasm",
+    "entry": "runtime/plugin.wasm",
+    "protocol": "dian115:wasm@1",
     "startup_timeout_ms": 10000,
     "shutdown_timeout_ms": 5000,
     "timeout_ms": 30000,
     "background_timeout_ms": 300000,
-    "max_concurrency": 4,
-    "restart_policy": "on-failure"
+    "max_concurrency": 1,
+    "restart_policy": "on-failure",
+    "memory_mb": 64
   },
   "permissions": {
     "apis": [
@@ -52,7 +53,9 @@
     "network": [
       {
         "origin": "http://127.0.0.1:8080",
-        "methods": ["GET"],
+        "methods": [
+          "GET"
+        ],
         "proxy_mode": "system",
         "reason": "演示通过宿主 Broker 访问容器内或局域网本地服务"
       }

@@ -5,7 +5,7 @@
 - 强制 Vue 3 Module Federation 页面；
 - 宿主 singleton 的 Vue 3、Naive UI 和 `@lucide/vue`；
 - `dian115-theme-v1` 主题变量；
-- 静态 Linux Go process runtime；
+- Go WASM reactor runtime（`dian115:wasm@1`）；
 - 全双工 `Content-Length` JSON-RPC；
 - `runtime.initialize`、state、action、job、普通 event、Telegram event 和 shutdown；
 - `host.call` 发送插件通知、读写 Host Storage、访问本地 HTTP 服务和创建目录监控；
@@ -19,7 +19,7 @@
 - npm
 - Go 1.22+
 
-宿主支持 Linux `amd64` 和 `arm64`。构建机可以是 Windows、macOS 或 Linux；Go 会交叉编译静态 Linux ELF。
+WASM runtime 与宿主 CPU 架构无关；构建机可以是 Windows、macOS 或 Linux。
 
 ## 构建
 
@@ -52,15 +52,15 @@ $env:DIAN115_PLUGIN_GOARCH = 'arm64'
 npm run build:runtime
 ```
 
-UI 输出到 `build/frontend/dist/assets`，runtime 输出到 `build/runtime/plugin`。构包脚本会再次检查 ELF magic 和 `PT_INTERP`，动态链接入口会失败。
+UI 输出到 `build/frontend/dist/assets`，runtime 输出到 `build/runtime/plugin.wasm`。构包脚本会再次检查 WASM magic、ABI 和完整性。
 
-在 Linux、WSL 或 Linux CI 中运行公开的 process 协议 smoke test：
+运行公开的 WASM package contract check：
 
 ```bash
-node ../../conformance/runtime-smoke.mjs --runtime build/runtime/plugin --manifest manifest.template.json --exercise-manifest --action send-test --expect-host-call --expect-telegram
+node ../../conformance/project-check.mjs --manifest manifest.template.json --market market-entry.template.json --build-root build --require-build
 ```
 
-该测试只使用公开 JSON-RPC 契约和最小 Host Call mock，不读取主项目源码、数据库、配置或 Docker 构建上下文。Windows 和 macOS 可以完成 UI/Go 交叉构建，但应把 runtime smoke 放到目标 Linux 架构执行。
+该检查只使用公开 schema 和 Node.js 标准库，不读取主项目源码、数据库、配置或 Docker 构建上下文。WASM worker 的 Host Call、配额和取消语义由宿主集成测试验证。
 
 ## 首次本地签名
 

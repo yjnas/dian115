@@ -46,7 +46,7 @@ requireText(manifest.publisher?.key_id, 'manifest.publisher.key_id', 128)
 requireText(manifest.compatibility?.dian115, 'manifest.compatibility.dian115', 80)
 requireText(manifest.compatibility?.plugin_api, 'manifest.compatibility.plugin_api', 40)
 
-if (manifest.runtime?.kind !== 'process' || manifest.runtime?.protocol !== 'dian115:process@1') fail('runtime must be process with dian115:process@1')
+if (!['process','wasm'].includes(manifest.runtime?.kind) || !['dian115:process@1','dian115:wasm@1'].includes(manifest.runtime?.protocol)) fail('runtime must be process or wasm with a supported protocol')
 requireText(manifest.runtime?.entry, 'manifest.runtime.entry', 240)
 if (manifest.ui?.mode !== 'federation') fail('ui.mode must be federation')
 for (const field of ['entry', 'assets_root', 'module']) requireText(manifest.ui?.federation?.[field], `manifest.ui.federation.${field}`, 240)
@@ -84,7 +84,8 @@ for (const [index, permission] of (manifest.permissions.network || []).entries()
 if ((manifest.events || []).length > 64 || (manifest.jobs || []).length > 32) fail('manifest events/jobs exceed limits')
 
 if (market.id !== manifest.id || market.version !== manifest.version) fail('market id/version do not match manifest')
-if (JSON.stringify(market.runtime) !== JSON.stringify({ kind: manifest.runtime.kind, protocol: manifest.runtime.protocol, autostart: true, trust_level: 'isolated-process' })) fail('market runtime disclosure must match the process manifest and include autostart: true')
+const expectedTrust = manifest.runtime.kind === 'wasm' ? 'wasm-sandbox' : 'isolated-process'
+if (JSON.stringify(market.runtime) !== JSON.stringify({ kind: manifest.runtime.kind, protocol: manifest.runtime.protocol, autostart: true, trust_level: expectedTrust })) fail('market runtime disclosure must match the manifest and include autostart: true')
 if (JSON.stringify(market.permissions || {}) !== JSON.stringify(manifest.permissions || {})) fail('market permissions do not exactly match manifest')
 if ('capabilities' in market || 'account_access' in market) fail('market entry uses removed permission fields')
 
@@ -111,15 +112,19 @@ const federationPath = resolve(buildRoot, manifest.ui.federation.entry)
 if (requireBuild || existsSync(buildRoot)) {
   if (!existsSync(runtimePath) || !statSync(runtimePath).isFile()) fail(`runtime build is missing: ${runtimePath}`)
   const elf = readFileSync(runtimePath)
-  if (elf.length < 64 || elf[0] !== 0x7f || elf.subarray(1, 4).toString('ascii') !== 'ELF') fail('runtime build is not an ELF executable')
-  if (elf[4] !== 2 || elf[5] !== 1) fail('runtime ELF must be 64-bit little-endian')
-  const machine = elf.readUInt16LE(18)
-  if (![0x3e, 0xb7].includes(machine)) fail(`runtime ELF architecture ${machine} is not amd64 or arm64`)
-  const phoff = Number(elf.readBigUInt64LE(32))
-  const phentsize = elf.readUInt16LE(54)
-  const phnum = elf.readUInt16LE(56)
-  for (let index = 0; index < phnum; index += 1) {
-    if (elf.readUInt32LE(phoff + index * phentsize) === 3) fail('runtime ELF is dynamically linked (PT_INTERP present)')
+  if (manifest.runtime.kind === 'wasm') {
+    if (elf.length < 8 || !elf.subarray(0, 8).equals(Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]))) fail('runtime build is not a valid WebAssembly module')
+  } else {
+    if (elf.length < 64 || elf[0] !== 0x7f || elf.subarray(1, 4).toString('ascii') !== 'ELF') fail('runtime build is not an ELF executable')
+    if (elf[4] !== 2 || elf[5] !== 1) fail('runtime ELF must be 64-bit little-endian')
+    const machine = elf.readUInt16LE(18)
+    if (![0x3e, 0xb7].includes(machine)) fail(`runtime ELF architecture ${machine} is not amd64 or arm64`)
+    const phoff = Number(elf.readBigUInt64LE(32))
+    const phentsize = elf.readUInt16LE(54)
+    const phnum = elf.readUInt16LE(56)
+    for (let index = 0; index < phnum; index += 1) {
+      if (elf.readUInt32LE(phoff + index * phentsize) === 3) fail('runtime ELF is dynamically linked (PT_INTERP present)')
+    }
   }
   if (!existsSync(federationPath) || !statSync(federationPath).isFile()) fail(`Federation entry is missing: ${federationPath}`)
   const remoteEntry = readFileSync(federationPath, 'utf8')

@@ -1,6 +1,6 @@
 # DIAN115 Process Runtime v1
 
-本文是 `dian115:process@1` 的完整线协议。插件入口是由宿主管理的常驻 Linux 进程，通过 stdin/stdout 全双工 JSON-RPC 2.0 通信。
+本文是历史 `dian115:process@1` 线协议。新插件应使用 `dian115:wasm@1`；WASM 运行时仍复用本协议的 invocation、Host API、Telegram 和事件语义，但不需要 Linux 原生进程或 seccomp。
 
 ## 1. 启动环境
 

@@ -9,10 +9,15 @@
 ```text
 manifest.json
 frontend/dist/assets/remoteEntry.js
-runtime/plugin
+runtime/plugin.wasm                 # WASM（推荐）
+# 或 runtime/plugin                 # legacy process，二选一
 integrity.json
 signature.json
 ```
+
+一个包只能声明一种运行时：`runtime.kind=wasm` 时必须提供 `runtime/plugin.wasm`，声明
+`runtime.kind=process` 时才提供 `runtime/plugin`。两者不能同时作为入口；legacy process
+仅用于兼容既有插件，新插件应选择 WASM。
 
 可选文件包括 `frontend/icon.svg`、Federation 生成的其他 JS/CSS/字体和运行时所需的包内只读资源。
 
@@ -29,7 +34,7 @@ signature.json
 
 成员路径必须是 NFC 规范化 UTF-8 包内相对路径，使用 `/`。禁止绝对路径、反斜杠、空段、`.`、`..`、重复 `/`、NUL、冒号、尾随点/空格和 Windows 设备名。大小写折叠后冲突的两个路径也会被拒绝。目录项不是必需的；只应打包普通文件。
 
-`runtime.entry` 的 ZIP Unix mode 必须包含任意执行位。宿主会校验它是当前 Linux 宿主架构的 `ET_EXEC` 或 `ET_DYN` ELF，并拒绝存在 `PT_INTERP` 的动态链接入口。因此入口必须静态链接。`ET_DYN` 仅表示允许静态 PIE，不表示允许动态解释器。
+legacy `process` 的 `runtime.entry` 必须包含执行位，并校验为当前 Linux 架构的静态 ELF。`wasm` 的入口是普通 `.wasm` 文件，校验 WASM magic、导出内存和 `dian115_alloc`/`dian115_handle` ABI；WASM 不需要执行位，也不要求 Linux 架构匹配。
 
 ## 2. `manifest.json`
 
@@ -71,9 +76,9 @@ ui
     "plugin_api": "^2.0"
   },
   "runtime": {
-    "kind": "process",
-    "entry": "runtime/plugin",
-    "protocol": "dian115:process@1",
+    "kind": "wasm",
+    "entry": "runtime/plugin.wasm",
+    "protocol": "dian115:wasm@1",
     "startup_timeout_ms": 10000,
     "shutdown_timeout_ms": 5000,
     "timeout_ms": 30000,
@@ -145,7 +150,9 @@ ui
 
 ### 2.3 运行时
 
-`runtime.kind` 固定为 `process`，`runtime.protocol` 固定为 `dian115:process@1`。`entry` 是完整性覆盖的包内相对路径。
+`runtime.kind` 为 `wasm`（推荐）或 legacy `process`。对应协议分别是 `dian115:wasm@1` 与 `dian115:process@1`。`entry` 是完整性覆盖的包内相对路径。
+
+WASM runtime 的 ABI、Host imports、配额和生命周期见 [WASM runtime v1](wasm-runtime-v1.md)。WASM 不得声明 `abi`、`health_path`、`event_path`、`action_path`、`state_path` 或 `job_path`；可选的 `memory_mb` 范围为 4–512 MiB。
 
 | 字段 | 默认值 | 范围 |
 | --- | ---: | ---: |
@@ -332,11 +339,11 @@ RFC8785-JCS(parse(integrity.json))
 
 ## 6. 安装、更新和回滚语义
 
-安装器先完成 ZIP、JSON、签名、完整性、Manifest、权限、UI、ELF 架构和静态链接检查，再提交安装记录和文件。权限或运行时披露变化会生成新的同意摘要，管理员必须重新确认。
+安装器先完成 ZIP、JSON、签名、完整性、Manifest、权限、UI 和运行时检查；legacy process 额外检查 ELF 架构和静态链接，WASM 检查模块 ABI，再提交安装记录和文件。权限或运行时披露变化会生成新的同意摘要，管理员必须重新确认。
 
 插件文件统一保存在 `/config/package/<plugin-id>/`：签名版本包位于 `package/`，插件持久数据位于 `data/`，私有临时文件位于 `tmp/`。进程启动后只看到自己的这三个目录。更新保留 `data/`，先停止旧进程，再短暂打开只读 package 父目录并原子写入新版本；数据库提交失败会删除新版本并重新协调旧版本。若新进程 `runtime.initialize` 失败，新版本保持已安装并进入不健康、退避或失败状态；宿主不会自动恢复旧包。发布者应在发布前验证目标架构，并保留旧版本包供管理员显式降级。
 
-禁用会停止新调用、任务和事件，注销 Telegram 路由并终止进程组。卸载会删除该插件的整个 `/config/package/<plugin-id>/` 私有目录（包括 `package`、`data`、`tmp`）和安装记录；安装实例级 KV 的保留/删除以当前管理端卸载提示为准。插件不能自行读取其他安装的数据。
+禁用会停止新调用、任务和事件，注销 Telegram 路由并停止运行时 worker。卸载会删除该插件的整个 `/config/package/<plugin-id>/` 私有目录（包括 `package`、`data`、`tmp`）和安装记录；安装实例级 KV 的保留/删除以当前管理端卸载提示为准。插件不能自行读取其他安装的数据。
 
 ### 本地导入
 

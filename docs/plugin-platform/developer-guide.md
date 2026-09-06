@@ -4,21 +4,21 @@ This guide takes a plugin from source to an installable package. It is self-cont
 
 ## 1. Architecture
 
-A plugin has one supervised Linux process and one mandatory Vue page:
+A plugin has one supervised local runtime (WASM recommended; legacy Linux process remains supported) and one mandatory Vue page:
 
 ```text
 Vue Federation page (trusted same-origin iframe)
   -> getState / invokeAction
   -> DIAN115 runtime bridge
   -> runtime.invoke over framed JSON-RPC
-  -> plugin process
+  -> plugin WASM reactor (or legacy process)
   -> host.call
   -> approved DIAN115 handler or host HTTP/HTTPS Broker
 ```
 
-The page is signed publisher code loaded in a same-origin iframe without an iframe sandbox or an extra UI CSP. It can use normal browser features, including images, `localStorage`, `sessionStorage`, IndexedDB, popups and ordinary `fetch`/XHR requests. It can also access same-origin browser state, so installing a plugin means trusting its publisher. The page is never given raw Bot, 115, TMDB, proxy or CD2 credentials by the plugin bridge, and it has no direct filesystem access. Privileged and background work should stay in the process runtime so it remains covered by plugin permissions, audit, proxy and retry behavior.
+The page is signed publisher code loaded in an iframe with a host bridge. It can use normal browser features, including images, `localStorage`, `sessionStorage`, IndexedDB, popups and ordinary `fetch`/XHR requests. It can also access same-origin browser state, so installing a plugin means trusting its publisher. The page is never given raw Bot, 115, TMDB, proxy or CD2 credentials by the plugin bridge, and it has no direct filesystem access. Privileged and background work should stay in the local runtime so it remains covered by plugin permissions, audit, proxy and retry behavior.
 
-The process is started directly by the main service in the current Docker container. It must not listen on a port, create another plugin container, daemonize, or require a remote callback. The host creates `/config/package/<plugin-id>/package`, `/config/package/<plugin-id>/data` and `/config/package/<plugin-id>/tmp`, then enters that installation root before starting the entry. Inside the process these are `/package`, `/data` and `/tmp`; other plugins, `/config`, Linux system directories and media mounts are outside the root. A plugin may start a bounded helper process from its own package, but that helper inherits the same private root, seccomp/no-new-privileges policy and process-group lifecycle. Direct socket, mount and kernel escape surfaces are blocked. Host files, watches, network, Telegram and notifications remain mediated by approved Host APIs.
+The local runtime is started directly by the main service in the current Docker container. It must not listen on a port, create another plugin container, daemonize, or require a remote callback. WASM modules do not receive a filesystem mount or start helper processes. Legacy process packages use the private `/config/package/<plugin-id>/` root and inherit the seccomp/no-new-privileges policy. Host files, watches, network, Telegram and notifications remain mediated by approved Host APIs.
 
 To start a helper shipped in the package, execute it below the path in `DIAN115_PLUGIN_PACKAGE`, for example `$DIAN115_PLUGIN_PACKAGE/runtime/helper`. It must be a static Linux ELF and remain inside the package directory. Helpers inherit the same private root and are terminated with the main plugin process group.
 
@@ -43,13 +43,13 @@ naive-ui
 
 They must be Federation singletons with `generate: false`. Do not bundle a private copy. The package must expose the module named by `ui.federation.module`, normally `./AppPage`.
 
-Build the runtime as a static ELF for the target host architecture:
+For the recommended WASM runtime, build a reactor module:
 
 ```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o build/runtime/plugin ./runtime
+CGO_ENABLED=0 GOOS=wasip1 GOARCH=wasm go build -buildmode=c-shared -trimpath -ldflags="-s -w" -o build/runtime/plugin.wasm ./runtime
 ```
 
-Use `GOARCH=arm64` for an ARM64 DIAN115 image. A ZIP with an ELF `PT_INTERP` segment is rejected; copying shared libraries beside the entry does not make a dynamically linked entry valid.
+WASM is architecture independent. Legacy process packages use `GOARCH=amd64` or `arm64`; a ZIP with an ELF `PT_INTERP` segment is rejected.
 
 ## 3. Define the signed Manifest
 
@@ -72,9 +72,9 @@ The UI and runtime are both required:
     "plugin_api": "^2.0"
   },
   "runtime": {
-    "kind": "process",
-    "entry": "runtime/plugin",
-    "protocol": "dian115:process@1"
+    "kind": "wasm",
+    "entry": "runtime/plugin.wasm",
+    "protocol": "dian115:wasm@1"
   },
   "permissions": {
     "apis": [
@@ -126,9 +126,9 @@ The host rule always wins. An undeclared origin/method uses `system`.
 
 See [Package format v1](package-format-v1.md) for every field and cross-file rule.
 
-## 4. Implement the process protocol
+## 4. Implement the runtime protocol\n\nWASM plugins use the reactor ABI and broker imports described in [WASM runtime v1](wasm-runtime-v1.md). Legacy process plugins use the framed protocol below.
 
-The process reads and writes `Content-Length` framed JSON-RPC 2.0 on stdin/stdout. The channel is full duplex: while handling `runtime.invoke`, the process may send `host.call`, `host.log`, or a Telegram registration and wait for the response. Keep reading stdout responses concurrently or both sides can deadlock.
+A legacy process reads and writes `Content-Length` framed JSON-RPC 2.0 on stdin/stdout. The channel is full duplex: while handling `runtime.invoke`, the process may send `host.call`, `host.log`, or a Telegram registration and wait for the response. Keep reading stdout responses concurrently or both sides can deadlock.
 
 The host calls:
 
@@ -136,7 +136,7 @@ The host calls:
 - `runtime.invoke` with `op=state`, `action`, `job`, or `event`;
 - `runtime.shutdown` before an intentional stop.
 
-The process can call:
+The runtime can call:
 
 - `host.call` for approved local APIs or external HTTP/HTTPS services;
 - `host.log` for structured installation-scoped logs;
@@ -296,6 +296,8 @@ The bridge provides only `getState(view)`, `invokeAction(action, input)`, and `r
 
 The page runs as trusted same-origin publisher code without an iframe `sandbox` attribute or an extra UI CSP. It may render packaged, HTTP, HTTPS, `data:` and `blob:` images; use browser storage; open HTTP/HTTPS pages; and make ordinary browser requests subject to the browser's normal CORS, mixed-content and popup rules. Values sent through the bridge must still be JSON-serializable. See [Vue Federation UI v1](ui-federation-v1.md) for the exact TypeScript contract, trust model, theme table and popup sequence.
 
+The host resets the Federation document to a full-width, zero-margin `html/body/#plugin-sandbox-root` baseline and applies `border-box` sizing. Do not add a fixed body `max-width` or minimum width; make the component root `width: 100%; max-width: 100%; min-width: 0`. A desktop browser can still provide a narrow iframe when the host sidebar is open, so switch multi-column layouts to one column around 900-1000px and allow toolbars to wrap. Global CSS imported only by a standalone preview entry is not loaded for the Federation component.
+
 ## 9. Package, sign and publish
 
 The package root must contain:
@@ -304,7 +306,7 @@ The package root must contain:
 manifest.json
 frontend/icon.svg                 # optional icon, UI itself is mandatory
 frontend/dist/assets/...          # mandatory signed Federation assets
-runtime/plugin                    # mandatory executable static Linux ELF
+runtime/plugin.wasm                # recommended WASM reactor (or runtime/plugin for legacy process)
 integrity.json
 signature.json
 ```
@@ -323,7 +325,7 @@ Publish the `.d115p` on HTTPS and add one entry to a market `index.json`. The ma
 
 ## 10. Local import behavior
 
-An administrator may also select the finished `.d115p` from the Plugin Center. This is an installation path, not a second package format: the host performs the same archive, manifest, integrity, signature, process, static ELF, Federation UI, and permission checks before presenting the consent dialog. The package must therefore be complete and signed even when it is not published in a market index.
+An administrator may also select the finished `.d115p` from the Plugin Center. This is an installation path, not a second package format: the host performs the same archive, manifest, integrity, signature, runtime, Federation UI, and permission checks (including static ELF checks for legacy process packages) before presenting the consent dialog. The package must therefore be complete and signed even when it is not published in a market index.
 
 The inspect endpoint is `POST /api/plugin-center/v1/imports/inspect` with a multipart field named `package`. A successful response contains `import_token`, `expires_at`, `file_name`, and the same plugin permission snapshot shown by a market install. The administrator then submits `POST /api/plugin-center/v1/imports/{token}/install` with `permissions_accepted: true`, the returned `consent_digest`, and `process_risk_accepted: true` for process plugins. The host revalidates every value and queues the normal `plugin_install` operation.
 
@@ -334,7 +336,7 @@ Import tokens are private, single-use, and expire after 15 minutes. The host del
 - UI is present, exposes the declared module, uses host singletons, and contains no unsigned remote scripts.
 - UI bridge props, action inputs and results are JSON-serializable; no functions, DOM nodes, cyclic objects, `BigInt` or Vue proxy objects cross the bridge.
 - Every UI asset and runtime file is covered by `integrity.json`.
-- Runtime entry is a static ELF for the target architecture and has executable ZIP mode bits.
+- WASM runtime entry has the WASM magic and reactor exports; legacy process entry is a static ELF for the target architecture and has executable ZIP mode bits.
 - Runtime handles full-duplex JSON-RPC and every required response contract.
 - Every local Host API is declared exactly and appears in OpenAPI.
 - Write calls use stable idempotency keys.

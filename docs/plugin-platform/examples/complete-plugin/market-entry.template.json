@@ -8,10 +8,10 @@
   "package_url": "https://example.invalid/releases/example.complete-plugin-1.0.0.d115p",
   "sha256": "REPLACED_BY_PACKAGER",
   "runtime": {
-    "kind": "process",
-    "protocol": "dian115:process@1",
+    "kind": "wasm",
+    "protocol": "dian115:wasm@1",
     "autostart": true,
-    "trust_level": "isolated-process"
+    "trust_level": "wasm-sandbox"
   },
   "permissions": {
     "apis": [

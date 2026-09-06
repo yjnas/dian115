@@ -1,10 +1,10 @@
 # 插件黑盒联调工具
 
-这里的工具只依赖公开的插件进程协议。第三方作者可以用它在目标 Linux 容器或 CI 中验证自己的 runtime 是否满足 Plugin API v2 的基本生命周期。
+这里的工具只依赖公开的插件运行时协议，不导入、不编译、也不读取 DIAN115 主项目源码。第三方作者可以用它在目标 Linux 容器或 CI 中验证 legacy process runtime 的基本生命周期；WASM runtime 则按 [WASM runtime v1](../wasm-runtime-v1.md) 的 reactor ABI 由宿主 worker harness 验证。
 
 ## 验证范围
 
-`project-check.mjs` 会在构包前检查 Manifest、市场条目、权限格式、三项前端 singleton 依赖、Federation 入口和静态 Linux ELF。它只使用 Node.js 标准库：
+`project-check.mjs` 会在构包前检查 Manifest、市场条目、权限格式、三项前端 singleton 依赖、Federation 入口，以及 WASM magic（或 legacy process 的静态 Linux ELF）。它只使用 Node.js 标准库：
 
 ```bash
 node docs/plugin-platform/conformance/project-check.mjs \
@@ -22,7 +22,7 @@ node docs/plugin-platform/conformance/openapi-check.mjs
 
 `runtime-smoke.mjs` 会：
 
-1. 启动指定的静态 Linux ELF；
+1. 启动指定的 legacy process 静态 Linux ELF；
 2. 发送 `runtime.initialize`，并处理插件在初始化期间发出的 `host.telegram.register`、`host.log` 和 `host.call`；
 3. 发送完整 state 和带 ETag 的条件 state，校验两种响应；
 4. 按参数调用 action，并可从 Manifest 调用首个 job 和 event；
@@ -33,19 +33,22 @@ node docs/plugin-platform/conformance/openapi-check.mjs
 
 ## 使用完整示例
 
-在 `docs/plugin-platform/examples/complete-plugin/` 中：
+在 `docs/plugin-platform/examples/complete-plugin/` 中（示例使用 WASM runtime；runtime-smoke 仅适用于 legacy process）：
 
 ```bash
 npm ci
 npm run build
 npm run check
-node ../../conformance/runtime-smoke.mjs --runtime build/runtime/plugin --manifest manifest.template.json --exercise-manifest --action send-test --expect-host-call --expect-telegram
+node ../../conformance/project-check.mjs --manifest manifest.template.json --market market-entry.template.json --build-root build --require-build
 ```
 
-Windows 或 macOS 上可以构建插件，但 Linux ELF 联调必须在 WSL、Linux CI 或与宿主相同架构的容器中执行。ARM64 示例：
+WASM 构建与 CPU 架构无关；legacy process 的 Linux ELF 联调必须在 WSL、Linux CI 或与宿主相同架构的容器中执行。
+
+`runtime-smoke.mjs` 目前只驱动 legacy process 的 stdin/stdout 协议；WASM 插件应由宿主
+worker harness 按 [WASM runtime v1](../wasm-runtime-v1.md) 执行同等调用。需要联调自有
+legacy process 时，将静态 Linux ELF 放入构建目录后运行：
 
 ```bash
-DIAN115_PLUGIN_GOARCH=arm64 npm run build
 node ../../conformance/runtime-smoke.mjs --runtime build/runtime/plugin
 ```
 
@@ -54,6 +57,9 @@ node ../../conformance/runtime-smoke.mjs --runtime build/runtime/plugin
 ```bash
 node docs/plugin-platform/conformance/runtime-smoke.mjs --runtime ./build/runtime/plugin
 ```
+
+上面的命令只适用于 `runtime.kind=process` 且入口为静态 Linux ELF 的包；WASM 入口
+`runtime/plugin.wasm` 不应传给该工具。
 
 可选参数：
 
@@ -72,13 +78,13 @@ node docs/plugin-platform/conformance/runtime-smoke.mjs --runtime ./build/runtim
 
 ## UI 联调
 
-UI 使用宿主同一套 Vue 3、Naive UI 和 `@lucide/vue` singleton。示例的 `npm run dev` 提供本地 mock bridge，可验证组件 props、主题变量、图片、浏览器存储、弹窗和错误状态；正式包作为同源可信发布者代码加载，不附加 iframe sandbox 或额外 UI CSP。弹窗仍受浏览器用户手势规则约束，普通浏览器请求仍受 CORS 和混合内容规则约束。所有 bridge 值必须可由 `JSON.stringify`/`JSON.parse` 完整往返。
+UI 使用宿主同一套 Vue 3、Naive UI 和 `@lucide/vue` singleton。示例的 `npm run dev` 提供本地 mock bridge，可验证组件 props、主题变量、图片、浏览器存储、弹窗和错误状态；正式包作为同源可信发布者代码加载，不附加 iframe sandbox 或额外 UI CSP。宿主会提供零外边距、全宽的 `html/body/#plugin-sandbox-root` 和 `border-box` 基线，插件不要依赖预览入口的固定 body 宽度。弹窗仍受浏览器用户手势规则约束，普通浏览器请求仍受 CORS 和混合内容规则约束。所有 bridge 值必须可由 `JSON.stringify`/`JSON.parse` 完整往返。
 
 ## 通过标准
 
 - runtime smoke 命令退出码为 `0`；
 - OpenAPI contract check 通过，Manifest 中的每项 Host API 也通过 `project-check.mjs` 的目录核对；
-- 入口是目标架构的静态 ELF，且没有 `PT_INTERP`；
+- WASM 入口包含标准 magic；legacy process 入口是目标架构的静态 ELF 且没有 `PT_INTERP`；
 - `.d115p` 由示例 `scripts/package.mjs` 生成并能通过包格式、完整性和签名校验；
 - UI 暴露 Manifest 中声明的 Federation module，且所有静态资源进入签名包；
 - Host API、网络路由、Telegram 注册和文件操作都与公开文档一致。

@@ -25,6 +25,7 @@ if (manifestArgument) {
 }
 
 if (!existsSync(runtimePath)) throw new Error(`runtime not found: ${runtimePath}`)
+if (manifest?.runtime?.kind === 'wasm') throw new Error('runtime-smoke.mjs covers legacy process only; use the DIAN115 WASM worker harness for wasm packages')
 if (process.platform !== 'linux') throw new Error('runtime-smoke.mjs must run on Linux, WSL, or a Linux container')
 
 const child = spawn(runtimePath, [], {

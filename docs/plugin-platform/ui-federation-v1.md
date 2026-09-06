@@ -301,6 +301,8 @@ async function openOAuth() {
 
 ```css
 .dian-plugin-page {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   color: var(--dian-text-primary);
   font-family: var(--dian-font-family);
@@ -315,6 +317,10 @@ async function openOAuth() {
 ```
 
 推荐页面根节点使用 `dian-plugin-page`。不要在卡片内再嵌套装饰卡片；用 full-width section、grid、tabs、data table、list 或 form 组织工作流。
+
+宿主会先为 iframe 提供统一的页面基线：`html`、`body` 和 `#plugin-sandbox-root` 的宽度为可用视口宽度，默认外边距为 `0`，后代元素使用 `border-box`，页面背景和字体来自主题变量。插件页面不要在 `body` 上设置固定 `max-width`、固定最小宽度或依赖预览页的默认外边距；应让 `.dian-plugin-page` 使用 `width: 100%; max-width: 100%; min-width: 0`，由自己的 grid、表格容器或局部滚动区域处理内容溢出。
+
+正式 Federation 页面不会自动加载插件本地预览入口的全局 CSS。预览入口应只用于模拟 bridge 和本地调试，正式页面所需的全局页面样式（包括 `html/body` 基线）应写入远程组件自己的样式，或直接依赖上述宿主基线。桌面浏览器不一定代表宽视口：侧边导航会减少插件 iframe 的实际宽度，双栏布局建议在 `900-1000px` 范围内切换为单栏，并让工具栏允许换行。
 
 响应式布局示例：
 

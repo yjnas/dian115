@@ -37,7 +37,6 @@ const obsoleteContractPatterns = [
   { pattern: /(?:declarative\s+UI|声明式\s*UI)/i, label: 'removed declarative UI model' },
   { pattern: /\/api\/pt\//i, label: 'removed PT plugin route' },
   { pattern: /[?&]query=Dune\b/, label: 'obsolete TMDB search parameter' },
-  { pattern: /["']kind["']\s*:\s*["']wasm["']/i, label: 'removed WASM runtime' },
 ]
 const contentViolations = []
 for (const file of publicContractFiles) {
